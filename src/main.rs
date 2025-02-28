@@ -55,6 +55,19 @@ fn main() -> Result<()> {
             Image::new(PALETTE_IMAGE_WIDTH, PALETTE_IMAGE_HEIGHT, PixelType::U8x4);
 
         Resizer::new().resize(&image, &mut resized_image, &ResizeOptions::default())?;
+
+        let (mut r, mut g, mut b) = (0, 0, 0);
+
+        for px in resized_image.buffer().chunks_exact(4) {
+            let a = u64::from(px[3]);
+            r += u64::from(px[0]) * a;
+            g += u64::from(px[1]) * a;
+            b += u64::from(px[2]) * a;
+        }
+
+        let scale = 255. * 255. * (PALETTE_IMAGE_WIDTH * PALETTE_IMAGE_HEIGHT) as f32;
+
+        let (r, g, b) = (r as f32 / scale, g as f32 / scale, b as f32 / scale);
     }
 
     Ok(())

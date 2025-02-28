@@ -40,6 +40,7 @@ unused_macro_rules = "deny"
 unused_qualifications = "deny"
 
 [lints.clippy]
+cast_precision_loss = { level = "allow", priority = 1 }
 doc_markdown = { level = "allow", priority = 1 }
 module_name_repetitions = { level = "allow", priority = 1 }
 should_panic_without_expect = { level = "allow", priority = 1 }
