@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 use pico_args::Arguments;
 use std::{fmt::Display, path::PathBuf, str::FromStr};
+use walkdir::WalkDir;
 
 fn parse_arg<T>(args: &mut Arguments, (short, long): (&'static str, &'static str)) -> Result<T>
 where
@@ -23,6 +24,22 @@ fn main() -> Result<()> {
     let mut args = Arguments::from_env();
 
     let palette_dir: PathBuf = parse_arg(&mut args, ("-p", "--palette-dir"))?;
+
+    for entry in WalkDir::new(palette_dir) {
+        let entry = entry?;
+
+        if entry.file_type().is_dir() {
+            continue;
+        }
+
+        let path = entry.path();
+
+        if path.extension().is_none_or(|ext| {
+            !matches!(ext.to_str(), Some("avif" | "jpeg" | "jpg" | "png" | "webp"))
+        }) {
+            continue;
+        }
+    }
 
     Ok(())
 }
