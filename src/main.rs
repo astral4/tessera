@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use image::ImageReader;
 use pico_args::Arguments;
 use std::{fmt::Display, path::PathBuf, str::FromStr};
 use walkdir::WalkDir;
@@ -39,6 +40,8 @@ fn main() -> Result<()> {
         }) {
             continue;
         }
+
+        let image = ImageReader::open(path)?.decode()?.into_rgba8();
     }
 
     Ok(())
