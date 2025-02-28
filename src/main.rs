@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 use fast_image_resize::{PixelType, ResizeOptions, Resizer, images::Image};
 use image::ImageReader;
+use kiddo::ImmutableKdTree;
 use pico_args::Arguments;
 use std::{fmt::Display, path::PathBuf, str::FromStr};
 use walkdir::WalkDir;
@@ -43,6 +44,9 @@ fn main() -> Result<()> {
 
     let palette_dir: PathBuf = parse_arg(&mut args, ("-p", "--palette-dir"))?;
 
+    let mut palette_colors = Vec::new();
+    let mut palette_images = Vec::new();
+
     for entry in WalkDir::new(palette_dir) {
         let entry = entry?;
 
@@ -69,21 +73,33 @@ fn main() -> Result<()> {
 
         Resizer::new().resize(&image, &mut resized_image, &ResizeOptions::default())?;
 
-        let (mut r, mut g, mut b) = (0, 0, 0);
+        let (mut r_sum, mut g_sum, mut b_sum) = (0., 0., 0.);
 
-        for px in resized_image.buffer().chunks_exact(4) {
-            let a = u64::from(px[3]);
-            r += u64::from(px[0]) * a;
-            g += u64::from(px[1]) * a;
-            b += u64::from(px[2]) * a;
+        for px in resized_image.buffer_mut().chunks_exact_mut(4) {
+            let a = f32::from(px[3]);
+
+            let r = f32::from(px[0]) * a / 255.;
+            let g = f32::from(px[1]) * a / 255.;
+            let b = f32::from(px[2]) * a / 255.;
+
+            px[0] = r as u8;
+            px[1] = g as u8;
+            px[2] = b as u8;
+
+            r_sum += r;
+            g_sum += g;
+            b_sum += b;
         }
 
-        let scale = 255. * 255. * (PALETTE_IMAGE_WIDTH * PALETTE_IMAGE_HEIGHT) as f32;
-
-        let (r, g, b) = (r as f32 / scale, g as f32 / scale, b as f32 / scale);
-
+        let scale = 255. * (PALETTE_IMAGE_WIDTH * PALETTE_IMAGE_HEIGHT) as f32;
+        let (r, g, b) = (r_sum / scale, g_sum / scale, b_sum / scale);
         let oklab = linear_srgb_to_oklab(r, g, b);
+
+        palette_colors.push(oklab);
+        palette_images.push(resized_image.into_vec());
     }
+
+    let tree = ImmutableKdTree::new_from_slice(&palette_colors);
 
     Ok(())
 }
