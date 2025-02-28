@@ -13,6 +13,7 @@ publish = false
 [dependencies]
 anyhow = "1.0.96"
 pico-args = { version = "0.5.0", features = ["eq-separator"] }
+walkdir = "2.5.0"
 
 [lints.rust]
 async_fn_in_trait = "allow"
