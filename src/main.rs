@@ -25,6 +25,19 @@ where
     }
 }
 
+// From https://bottosson.github.io/posts/oklab/
+fn linear_srgb_to_oklab(r: f32, g: f32, b: f32) -> [f32; 3] {
+    let lp = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+    let mp = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+    let sp = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+
+    let l = 0.2104542553 * lp + 0.7936177850 * mp - 0.0040720468 * sp;
+    let a = 1.9779984951 * lp - 2.4285922050 * mp + 0.4505937099 * sp;
+    let b = 0.0259040371 * lp + 0.7827717662 * mp - 0.8086757660 * sp;
+
+    [l, a, b]
+}
+
 fn main() -> Result<()> {
     let mut args = Arguments::from_env();
 
@@ -68,6 +81,8 @@ fn main() -> Result<()> {
         let scale = 255. * 255. * (PALETTE_IMAGE_WIDTH * PALETTE_IMAGE_HEIGHT) as f32;
 
         let (r, g, b) = (r as f32 / scale, g as f32 / scale, b as f32 / scale);
+
+        let oklab = linear_srgb_to_oklab(r, g, b);
     }
 
     Ok(())

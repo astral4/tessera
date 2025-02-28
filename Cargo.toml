@@ -42,9 +42,12 @@ unused_qualifications = "deny"
 [lints.clippy]
 cast_precision_loss = { level = "allow", priority = 1 }
 doc_markdown = { level = "allow", priority = 1 }
+excessive_precision = { level = "allow", priority = 1 }
+many_single_char_names = { level = "allow", priority = 1 }
 module_name_repetitions = { level = "allow", priority = 1 }
 should_panic_without_expect = { level = "allow", priority = 1 }
 pedantic = "warn"
+unreadable_literal = { level = "allow", priority = 1 }
 
 [profile.release]
 lto = "thin"
