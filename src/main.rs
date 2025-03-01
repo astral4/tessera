@@ -65,10 +65,23 @@ fn main() -> Result<()> {
     let input_image_path: PathBuf = parse_arg(&mut args, ("-i", "--input"))?;
     let output_image_path: PathBuf = parse_arg(&mut args, ("-o", "--output"))?;
 
+    if !palette_dir_path.is_dir() {
+        bail!("`-p`/`--palette-dir`: path does not point to a directory");
+    }
+    if tile_size == 0 {
+        bail!("`-s`/`--tile-size`: tile size cannot be zero");
+    }
+    if !input_image_path.is_file() {
+        bail!("`-i`/`--input`: path does not point to a file");
+    }
+    if !output_image_path.is_file() {
+        bail!("`-o`/`--output`: path does not point to a file");
+    }
+
     let palette_scale =
-        (const { <<InputImage as GenericImageView>::Pixel as Pixel>::Subpixel::MAX as u32 }
-            * tile_size
-            * tile_size) as f32;
+        const { <<InputImage as GenericImageView>::Pixel as Pixel>::Subpixel::MAX as f32 }
+            * tile_size as f32
+            * tile_size as f32;
 
     let mut palette_colors = Vec::new();
     let mut palette_images = Vec::new();
