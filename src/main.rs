@@ -144,10 +144,12 @@ fn main() -> Result<()> {
         .zip(0..)
     {
         let palette_image = palette_cache.entry(input_px).or_insert_with(|| {
+            const SCALE: f32 = 255. * 255.;
+
             let a = f32::from(input_px[3]);
-            let r = f32::from(input_px[0]) * a / 255.;
-            let g = f32::from(input_px[1]) * a / 255.;
-            let b = f32::from(input_px[2]) * a / 255.;
+            let r = f32::from(input_px[0]) * a / SCALE;
+            let g = f32::from(input_px[1]) * a / SCALE;
+            let b = f32::from(input_px[2]) * a / SCALE;
             let oklab = linear_srgb_to_oklab(r, g, b);
             let palette_idx = tree.nearest_one::<SquaredEuclidean>(&oklab).item as usize;
             palette_images.get(palette_idx).unwrap()
