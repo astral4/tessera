@@ -63,6 +63,7 @@ fn main() -> Result<()> {
 
     let palette_dir_path: PathBuf = parse_arg(&mut args, ("-p", "--palette-dir"))?;
     let input_image_path: PathBuf = parse_arg(&mut args, ("-i", "--input"))?;
+    let output_image_path: PathBuf = parse_arg(&mut args, ("-o", "--output"))?;
 
     let mut palette_colors = Vec::new();
     let mut palette_images = Vec::new();
@@ -193,6 +194,15 @@ fn main() -> Result<()> {
             output_image_buf[start_idx..start_idx + OUTPUT_TILE_ROW_SIZE].copy_from_slice(row_data);
         }
     }
+
+    let output_image = RgbaImage::from_raw(
+        (output_tiles_width * PALETTE_IMAGE_WIDTH) as u32,
+        (output_tiles_height * PALETTE_IMAGE_HEIGHT) as u32,
+        output_image_buf,
+    )
+    .unwrap();
+
+    output_image.save(output_image_path)?;
 
     Ok(())
 }
