@@ -127,21 +127,13 @@ fn main() -> Result<()> {
 
     let input_image = ImageReader::open(input_image_path)?.decode()?.into_rgba8();
     let (width, height) = input_image.dimensions();
-    let resized_image = resize_image(input_image, width / 2, height / 2)?;
 
-    let mut output_image = RgbImage::new(
-        resized_image.width() * PALETTE_IMAGE_WIDTH,
-        resized_image.height() * PALETTE_IMAGE_HEIGHT,
-    );
+    let mut output_image =
+        RgbImage::new(width * PALETTE_IMAGE_WIDTH, height * PALETTE_IMAGE_HEIGHT);
 
-    let mut palette_cache =
-        HashMap::with_capacity((resized_image.width() * resized_image.height() / 2) as usize);
+    let mut palette_cache = HashMap::with_capacity((width * height / 2) as usize);
 
-    for (input_px, tile_idx) in resized_image
-        .buffer()
-        .array_chunks::<RGBA8_PIXEL_SIZE>()
-        .zip(0..)
-    {
+    for (input_px, tile_idx) in input_image.pixels().zip(0..) {
         let palette_image = palette_cache.entry(input_px).or_insert_with(|| {
             const SCALE: f32 = 255. * 255.;
 
@@ -155,8 +147,8 @@ fn main() -> Result<()> {
         });
 
         for (tile_px, px_idx) in palette_image.array_chunks::<RGBA8_PIXEL_SIZE>().zip(0..) {
-            let tile_x = tile_idx % resized_image.width();
-            let tile_y = tile_idx / resized_image.width();
+            let tile_x = tile_idx % width;
+            let tile_y = tile_idx / width;
 
             let px_x = px_idx % PALETTE_IMAGE_WIDTH;
             let px_y = px_idx / PALETTE_IMAGE_WIDTH;
