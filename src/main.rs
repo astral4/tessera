@@ -9,9 +9,10 @@ use pico_args::Arguments;
 use std::{fmt::Display, path::PathBuf, str::FromStr};
 use walkdir::WalkDir;
 
-const PALETTE_IMAGE_WIDTH: u32 = 16;
-const PALETTE_IMAGE_HEIGHT: u32 = 16;
+const PALETTE_IMAGE_WIDTH: usize = 16;
+const PALETTE_IMAGE_HEIGHT: usize = 16;
 const RGBA8_PIXEL_SIZE: usize = 4;
+const PALETTE_SCALE: f32 = (u8::MAX as usize * PALETTE_IMAGE_WIDTH * PALETTE_IMAGE_HEIGHT) as f32;
 
 fn parse_arg<T>(args: &mut Arguments, (short, long): (&'static str, &'static str)) -> Result<T>
 where
@@ -82,7 +83,11 @@ fn main() -> Result<()> {
         }
 
         let image = ImageReader::open(path)?.decode()?.into_rgba8();
-        let mut resized_image = resize_image(image, PALETTE_IMAGE_WIDTH, PALETTE_IMAGE_HEIGHT)?;
+        let mut resized_image = resize_image(
+            image,
+            const { PALETTE_IMAGE_WIDTH as u32 },
+            const { PALETTE_IMAGE_HEIGHT as u32 },
+        )?;
 
         let (mut r_sum, mut g_sum, mut b_sum) = (0., 0., 0.);
 
@@ -90,24 +95,33 @@ fn main() -> Result<()> {
             .buffer_mut()
             .array_chunks_mut::<RGBA8_PIXEL_SIZE>()
         {
-            let a = f32::from(px[3]);
+            if px[3] == u8::MAX {
+                r_sum += f32::from(px[0]);
+                g_sum += f32::from(px[1]);
+                b_sum += f32::from(px[2]);
+            } else {
+                let a = f32::from(px[3]);
 
-            let r = f32::from(px[0]) * a / 255.;
-            let g = f32::from(px[1]) * a / 255.;
-            let b = f32::from(px[2]) * a / 255.;
+                let r = f32::from(px[0]) * a / 255.;
+                let g = f32::from(px[1]) * a / 255.;
+                let b = f32::from(px[2]) * a / 255.;
 
-            px[0] = r as u8;
-            px[1] = g as u8;
-            px[2] = b as u8;
+                px[0] = r as u8;
+                px[1] = g as u8;
+                px[2] = b as u8;
+                px[3] = u8::MAX;
 
-            r_sum += r;
-            g_sum += g;
-            b_sum += b;
+                r_sum += r;
+                g_sum += g;
+                b_sum += b;
+            }
         }
 
-        let scale = 255. * (PALETTE_IMAGE_WIDTH * PALETTE_IMAGE_HEIGHT) as f32;
-        let (r, g, b) = (r_sum / scale, g_sum / scale, b_sum / scale);
-        let oklab = linear_srgb_to_oklab(r, g, b);
+        let oklab = linear_srgb_to_oklab(
+            r_sum / PALETTE_SCALE,
+            g_sum / PALETTE_SCALE,
+            b_sum / PALETTE_SCALE,
+        );
 
         palette_colors.push(oklab);
         palette_images.push(resized_image.into_vec());
@@ -116,13 +130,28 @@ fn main() -> Result<()> {
     let tree = ImmutableKdTree::new_from_slice(&palette_colors);
 
     let mut palette_cache =
-        HashMap::with_capacity(const { (PALETTE_IMAGE_WIDTH * PALETTE_IMAGE_HEIGHT / 2) as usize });
+        HashMap::with_capacity(const { PALETTE_IMAGE_WIDTH * PALETTE_IMAGE_HEIGHT / 2 });
 
     let input_image = ImageReader::open(input_image_path)?.decode()?.into_rgba8();
     let (width, height) = input_image.dimensions();
     let resized_image = resize_image(input_image, width / 2, height / 2)?;
 
-    for input_px in resized_image.buffer().array_chunks::<RGBA8_PIXEL_SIZE>() {
+    let (output_tiles_width, output_tiles_height) = (
+        resized_image.width() as usize,
+        resized_image.height() as usize,
+    );
+    let output_buf_size = output_tiles_width
+        * PALETTE_IMAGE_WIDTH
+        * output_tiles_height
+        * PALETTE_IMAGE_HEIGHT
+        * RGBA8_PIXEL_SIZE;
+    let mut output_image_buf = vec![0; output_buf_size];
+
+    for (tile_idx, input_px) in resized_image
+        .buffer()
+        .array_chunks::<RGBA8_PIXEL_SIZE>()
+        .enumerate()
+    {
         let palette_image = palette_cache.entry(input_px).or_insert_with(|| {
             let a = f32::from(input_px[3]);
             let r = f32::from(input_px[0]) * a / 255.;
@@ -132,6 +161,37 @@ fn main() -> Result<()> {
             let palette_idx = tree.nearest_one::<SquaredEuclidean>(&oklab).item as usize;
             palette_images.get(palette_idx).unwrap()
         });
+
+        for (col_idx, row_data) in palette_image
+            .array_chunks::<{ PALETTE_IMAGE_WIDTH * RGBA8_PIXEL_SIZE }>()
+            .enumerate()
+        {
+            const OUTPUT_TILE_ROW_SIZE: usize = PALETTE_IMAGE_WIDTH * RGBA8_PIXEL_SIZE;
+
+            let tile_col_idx = tile_idx / output_tiles_width;
+            let tile_row_idx = tile_idx % output_tiles_width;
+
+            /*
+            let x = tile_col_idx * OUTPUT_TILE_ROW_SIZE * PALETTE_IMAGE_HEIGHT;
+
+            let y = x + OUTPUT_TILE_ROW_SIZE * output_tiles_width * col_idx;
+
+            let z = y + OUTPUT_TILE_ROW_SIZE * tile_row_idx;
+            */
+
+            /*
+            let start_idx = tile_col_idx * OUTPUT_TILE_ROW_SIZE * PALETTE_IMAGE_HEIGHT
+                + OUTPUT_TILE_ROW_SIZE * output_tiles_width * col_idx
+                + OUTPUT_TILE_ROW_SIZE * tile_row_idx;
+            */
+
+            let start_idx = OUTPUT_TILE_ROW_SIZE
+                * (tile_col_idx * PALETTE_IMAGE_HEIGHT
+                    + col_idx * output_tiles_width
+                    + tile_row_idx);
+
+            output_image_buf[start_idx..start_idx + OUTPUT_TILE_ROW_SIZE].copy_from_slice(row_data);
+        }
     }
 
     Ok(())
