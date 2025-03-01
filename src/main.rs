@@ -9,10 +9,10 @@ use pico_args::Arguments;
 use std::{fmt::Display, path::PathBuf, str::FromStr};
 use walkdir::WalkDir;
 
-const PALETTE_IMAGE_WIDTH: usize = 16;
-const PALETTE_IMAGE_HEIGHT: usize = 16;
+const PALETTE_IMAGE_WIDTH: u32 = 16;
+const PALETTE_IMAGE_HEIGHT: u32 = 16;
 const RGBA8_PIXEL_SIZE: usize = 4;
-const PALETTE_SCALE: f32 = (u8::MAX as usize * PALETTE_IMAGE_WIDTH * PALETTE_IMAGE_HEIGHT) as f32;
+const PALETTE_SCALE: f32 = (u8::MAX as u32 * PALETTE_IMAGE_WIDTH * PALETTE_IMAGE_HEIGHT) as f32;
 
 fn parse_arg<T>(args: &mut Arguments, (short, long): (&'static str, &'static str)) -> Result<T>
 where
@@ -84,11 +84,7 @@ fn main() -> Result<()> {
         }
 
         let image = ImageReader::open(path)?.decode()?.into_rgba8();
-        let mut resized_image = resize_image(
-            image,
-            const { PALETTE_IMAGE_WIDTH as u32 },
-            const { PALETTE_IMAGE_HEIGHT as u32 },
-        )?;
+        let mut resized_image = resize_image(image, PALETTE_IMAGE_WIDTH, PALETTE_IMAGE_HEIGHT)?;
 
         let (mut r_sum, mut g_sum, mut b_sum) = (0., 0., 0.);
 
@@ -130,28 +126,22 @@ fn main() -> Result<()> {
 
     let tree = ImmutableKdTree::new_from_slice(&palette_colors);
 
-    let mut palette_cache =
-        HashMap::with_capacity(const { PALETTE_IMAGE_WIDTH * PALETTE_IMAGE_HEIGHT / 2 });
-
     let input_image = ImageReader::open(input_image_path)?.decode()?.into_rgba8();
     let (width, height) = input_image.dimensions();
     let resized_image = resize_image(input_image, width / 2, height / 2)?;
 
-    let (output_tiles_width, output_tiles_height) = (
-        resized_image.width() as usize,
-        resized_image.height() as usize,
+    let mut output_image = RgbaImage::new(
+        resized_image.width() * PALETTE_IMAGE_WIDTH,
+        resized_image.height() * PALETTE_IMAGE_HEIGHT,
     );
-    let output_buf_size = output_tiles_width
-        * PALETTE_IMAGE_WIDTH
-        * output_tiles_height
-        * PALETTE_IMAGE_HEIGHT
-        * RGBA8_PIXEL_SIZE;
-    let mut output_image_buf = vec![0; output_buf_size];
 
-    for (tile_idx, input_px) in resized_image
+    let mut palette_cache =
+        HashMap::with_capacity((resized_image.width() * resized_image.height() / 2) as usize);
+
+    for (input_px, tile_idx) in resized_image
         .buffer()
         .array_chunks::<RGBA8_PIXEL_SIZE>()
-        .enumerate()
+        .zip(0..)
     {
         let palette_image = palette_cache.entry(input_px).or_insert_with(|| {
             let a = f32::from(input_px[3]);
@@ -163,44 +153,19 @@ fn main() -> Result<()> {
             palette_images.get(palette_idx).unwrap()
         });
 
-        for (col_idx, row_data) in palette_image
-            .array_chunks::<{ PALETTE_IMAGE_WIDTH * RGBA8_PIXEL_SIZE }>()
-            .enumerate()
-        {
-            const OUTPUT_TILE_ROW_SIZE: usize = PALETTE_IMAGE_WIDTH * RGBA8_PIXEL_SIZE;
+        for (tile_px, px_idx) in palette_image.array_chunks::<RGBA8_PIXEL_SIZE>().zip(0..) {
+            let tile_x = tile_idx % resized_image.width();
+            let tile_y = tile_idx / resized_image.width();
 
-            let tile_col_idx = tile_idx / output_tiles_width;
-            let tile_row_idx = tile_idx % output_tiles_width;
+            let px_x = px_idx % PALETTE_IMAGE_WIDTH;
+            let px_y = px_idx / PALETTE_IMAGE_WIDTH;
 
-            /*
-            let x = tile_col_idx * OUTPUT_TILE_ROW_SIZE * PALETTE_IMAGE_HEIGHT;
+            let x = tile_x * PALETTE_IMAGE_WIDTH + px_x;
+            let y = tile_y * PALETTE_IMAGE_HEIGHT + px_y;
 
-            let y = x + OUTPUT_TILE_ROW_SIZE * output_tiles_width * col_idx;
-
-            let z = y + OUTPUT_TILE_ROW_SIZE * tile_row_idx;
-            */
-
-            /*
-            let start_idx = tile_col_idx * OUTPUT_TILE_ROW_SIZE * PALETTE_IMAGE_HEIGHT
-                + OUTPUT_TILE_ROW_SIZE * output_tiles_width * col_idx
-                + OUTPUT_TILE_ROW_SIZE * tile_row_idx;
-            */
-
-            let start_idx = OUTPUT_TILE_ROW_SIZE
-                * (tile_col_idx * PALETTE_IMAGE_HEIGHT
-                    + col_idx * output_tiles_width
-                    + tile_row_idx);
-
-            output_image_buf[start_idx..start_idx + OUTPUT_TILE_ROW_SIZE].copy_from_slice(row_data);
+            output_image.put_pixel(x, y, image::Rgba(*tile_px));
         }
     }
-
-    let output_image = RgbaImage::from_raw(
-        (output_tiles_width * PALETTE_IMAGE_WIDTH) as u32,
-        (output_tiles_height * PALETTE_IMAGE_HEIGHT) as u32,
-        output_image_buf,
-    )
-    .unwrap();
 
     output_image.save(output_image_path)?;
 
