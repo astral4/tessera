@@ -3,16 +3,15 @@
 use anyhow::{Result, bail};
 use fast_image_resize::{FilterType, PixelType, ResizeAlg, ResizeOptions, Resizer, images::Image};
 use foldhash::{HashMap, HashMapExt};
-use image::{ImageReader, Rgb, RgbImage, RgbaImage};
+use image::{GenericImageView, ImageReader, Pixel, Rgb, RgbImage, RgbaImage};
 use kiddo::{ImmutableKdTree, SquaredEuclidean};
 use pico_args::Arguments;
 use std::{fmt::Display, path::PathBuf, str::FromStr};
 use walkdir::WalkDir;
 
-const PALETTE_IMAGE_WIDTH: u32 = 16;
-const PALETTE_IMAGE_HEIGHT: u32 = 16;
-const RGBA8_PIXEL_SIZE: usize = 4;
-const PALETTE_SCALE: f32 = (u8::MAX as u32 * PALETTE_IMAGE_WIDTH * PALETTE_IMAGE_HEIGHT) as f32;
+type InputImage = RgbaImage;
+
+const PIXEL_SIZE: usize = size_of::<<InputImage as GenericImageView>::Pixel>();
 
 fn parse_arg<T>(args: &mut Arguments, (short, long): (&'static str, &'static str)) -> Result<T>
 where
@@ -62,8 +61,14 @@ fn main() -> Result<()> {
     let mut args = Arguments::from_env();
 
     let palette_dir_path: PathBuf = parse_arg(&mut args, ("-p", "--palette-dir"))?;
+    let tile_size: u32 = parse_arg(&mut args, ("-s", "--tile-size"))?;
     let input_image_path: PathBuf = parse_arg(&mut args, ("-i", "--input"))?;
     let output_image_path: PathBuf = parse_arg(&mut args, ("-o", "--output"))?;
+
+    let palette_scale =
+        (const { <<InputImage as GenericImageView>::Pixel as Pixel>::Subpixel::MAX as u32 }
+            * tile_size
+            * tile_size) as f32;
 
     let mut palette_colors = Vec::new();
     let mut palette_images = Vec::new();
@@ -84,14 +89,11 @@ fn main() -> Result<()> {
         }
 
         let image = ImageReader::open(path)?.decode()?.into_rgba8();
-        let mut resized_image = resize_image(image, PALETTE_IMAGE_WIDTH, PALETTE_IMAGE_HEIGHT)?;
+        let mut resized_image = resize_image(image, tile_size, tile_size)?;
 
         let (mut r_sum, mut g_sum, mut b_sum) = (0., 0., 0.);
 
-        for px in resized_image
-            .buffer_mut()
-            .array_chunks_mut::<RGBA8_PIXEL_SIZE>()
-        {
+        for px in resized_image.buffer_mut().array_chunks_mut::<PIXEL_SIZE>() {
             if px[3] == u8::MAX {
                 r_sum += f32::from(px[0]);
                 g_sum += f32::from(px[1]);
@@ -114,9 +116,9 @@ fn main() -> Result<()> {
         }
 
         let oklab = linear_srgb_to_oklab(
-            r_sum / PALETTE_SCALE,
-            g_sum / PALETTE_SCALE,
-            b_sum / PALETTE_SCALE,
+            r_sum / palette_scale,
+            g_sum / palette_scale,
+            b_sum / palette_scale,
         );
 
         palette_colors.push(oklab);
@@ -128,8 +130,7 @@ fn main() -> Result<()> {
     let input_image = ImageReader::open(input_image_path)?.decode()?.into_rgba8();
     let (width, height) = input_image.dimensions();
 
-    let mut output_image =
-        RgbImage::new(width * PALETTE_IMAGE_WIDTH, height * PALETTE_IMAGE_HEIGHT);
+    let mut output_image = RgbImage::new(width * tile_size, height * tile_size);
 
     let mut palette_cache = HashMap::with_capacity((width * height / 2) as usize);
 
@@ -146,15 +147,15 @@ fn main() -> Result<()> {
             palette_images.get(palette_idx).unwrap()
         });
 
-        for (tile_px, px_idx) in palette_image.array_chunks::<RGBA8_PIXEL_SIZE>().zip(0..) {
+        for (tile_px, px_idx) in palette_image.array_chunks::<PIXEL_SIZE>().zip(0..) {
             let tile_x = tile_idx % width;
             let tile_y = tile_idx / width;
 
-            let px_x = px_idx % PALETTE_IMAGE_WIDTH;
-            let px_y = px_idx / PALETTE_IMAGE_WIDTH;
+            let px_x = px_idx % tile_size;
+            let px_y = px_idx / tile_size;
 
-            let x = tile_x * PALETTE_IMAGE_WIDTH + px_x;
-            let y = tile_y * PALETTE_IMAGE_HEIGHT + px_y;
+            let x = tile_x * tile_size + px_x;
+            let y = tile_y * tile_size + px_y;
 
             output_image.put_pixel(x, y, Rgb(*tile_px.first_chunk().unwrap()));
         }
