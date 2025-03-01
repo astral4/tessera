@@ -6,29 +6,12 @@ use foldhash::{HashMap, HashMapExt};
 use image::{GenericImageView, ImageReader, Pixel, Rgb, RgbImage, RgbaImage};
 use kiddo::{ImmutableKdTree, SquaredEuclidean};
 use pico_args::Arguments;
-use std::{fmt::Display, path::PathBuf, str::FromStr};
+use std::path::PathBuf;
 use walkdir::WalkDir;
 
 type InputImage = RgbaImage;
 
 const PIXEL_SIZE: usize = size_of::<<InputImage as GenericImageView>::Pixel>();
-
-fn parse_arg<T>(args: &mut Arguments, (short, long): (&'static str, &'static str)) -> Result<T>
-where
-    T: FromStr,
-    <T as FromStr>::Err: Display,
-{
-    match (
-        args.opt_value_from_str(short)?,
-        args.opt_value_from_str(long)?,
-    ) {
-        (Some(arg), None) | (None, Some(arg)) => Ok(arg),
-        (Some(_), Some(_)) => bail!(
-            "duplicate argument specified; only one of `{short}` and `{long}` should be present"
-        ),
-        (None, None) => bail!("no `{short}` or `{long}` argument specified"),
-    }
-}
 
 fn resize_image(image: RgbaImage, new_width: u32, new_height: u32) -> Result<Image<'static>> {
     let (width, height) = image.dimensions();
@@ -60,10 +43,22 @@ fn linear_srgb_to_oklab(r: f32, g: f32, b: f32) -> [f32; 3] {
 fn main() -> Result<()> {
     let mut args = Arguments::from_env();
 
-    let palette_dir_path: PathBuf = parse_arg(&mut args, ("-p", "--palette-dir"))?;
-    let tile_size: u32 = parse_arg(&mut args, ("-s", "--tile-size"))?;
-    let input_image_path: PathBuf = parse_arg(&mut args, ("-i", "--input"))?;
-    let output_image_path: PathBuf = parse_arg(&mut args, ("-o", "--output"))?;
+    if args.contains(["-h", "--help"]) {
+        println!(
+            "tessera: image mosaic generator
+-h, --help           print this message
+-p, --palette-dir    path to directory containing images to tile the output image with
+-s, --tile-size      width and height of each tile in the output image, in pixels
+-i, --input          input image path; input will be read from this location
+-o, --output         output image path; output will be written to this location"
+        );
+        return Ok(());
+    }
+
+    let palette_dir_path: PathBuf = args.value_from_str(["-p", "--palette-dir"])?;
+    let tile_size: u32 = args.value_from_str(["-s", "--tile-size"])?;
+    let input_image_path: PathBuf = args.value_from_str(["-i", "--input"])?;
+    let output_image_path: PathBuf = args.value_from_str(["-o", "--output"])?;
 
     if !palette_dir_path.is_dir() {
         bail!("`-p`/`--palette-dir`: path does not point to a directory");
@@ -73,9 +68,6 @@ fn main() -> Result<()> {
     }
     if !input_image_path.is_file() {
         bail!("`-i`/`--input`: path does not point to a file");
-    }
-    if !output_image_path.is_file() {
-        bail!("`-o`/`--output`: path does not point to a file");
     }
 
     let palette_scale =
