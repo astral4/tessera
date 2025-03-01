@@ -3,7 +3,7 @@
 use anyhow::{Result, bail};
 use fast_image_resize::{FilterType, PixelType, ResizeAlg, ResizeOptions, Resizer, images::Image};
 use foldhash::{HashMap, HashMapExt};
-use image::{ImageReader, RgbaImage};
+use image::{ImageReader, Rgb, RgbImage, RgbaImage};
 use kiddo::{ImmutableKdTree, SquaredEuclidean};
 use pico_args::Arguments;
 use std::{fmt::Display, path::PathBuf, str::FromStr};
@@ -106,7 +106,6 @@ fn main() -> Result<()> {
                 px[0] = r as u8;
                 px[1] = g as u8;
                 px[2] = b as u8;
-                px[3] = u8::MAX;
 
                 r_sum += r;
                 g_sum += g;
@@ -130,7 +129,7 @@ fn main() -> Result<()> {
     let (width, height) = input_image.dimensions();
     let resized_image = resize_image(input_image, width / 2, height / 2)?;
 
-    let mut output_image = RgbaImage::new(
+    let mut output_image = RgbImage::new(
         resized_image.width() * PALETTE_IMAGE_WIDTH,
         resized_image.height() * PALETTE_IMAGE_HEIGHT,
     );
@@ -165,7 +164,7 @@ fn main() -> Result<()> {
             let x = tile_x * PALETTE_IMAGE_WIDTH + px_x;
             let y = tile_y * PALETTE_IMAGE_HEIGHT + px_y;
 
-            output_image.put_pixel(x, y, image::Rgba(*tile_px));
+            output_image.put_pixel(x, y, Rgb(*tile_px.first_chunk().unwrap()));
         }
     }
 
