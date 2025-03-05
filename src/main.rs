@@ -13,6 +13,7 @@ type InputImage = RgbaImage;
 
 const PIXEL_SIZE: usize = size_of::<<InputImage as GenericImageView>::Pixel>();
 
+// Resizes the input image to the specified dimensions via triangle/bilinear sampling, producing a new image as output.
 fn resize_image(image: RgbaImage, new_width: u32, new_height: u32) -> Result<Image<'static>> {
     let (width, height) = image.dimensions();
     let image = Image::from_vec_u8(width, height, image.into_vec(), PixelType::U8x4)?;
@@ -27,6 +28,8 @@ fn resize_image(image: RgbaImage, new_width: u32, new_height: u32) -> Result<Ima
     Ok(resized_image)
 }
 
+// Converts a (R, B, G) triple in linear sRGB space (i.e. every component's value is from 0.0 to 1.0)
+// to its corresponding (L, a, b) triple in Oklab space.
 // From https://bottosson.github.io/posts/oklab/
 fn linear_srgb_to_oklab(r: f32, g: f32, b: f32) -> [f32; 3] {
     let lp = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
@@ -41,6 +44,7 @@ fn linear_srgb_to_oklab(r: f32, g: f32, b: f32) -> [f32; 3] {
 }
 
 fn main() -> Result<()> {
+    // Parse and validate input arguments
     let mut args = Arguments::from_env();
 
     if args.contains(["-h", "--help"]) {
@@ -70,15 +74,18 @@ fn main() -> Result<()> {
         bail!("`-i`/`--input`: path does not point to a file");
     }
 
+    // Calculate scaling factor used in computing the average color of a tile
     let palette_scale =
         const { <<InputImage as GenericImageView>::Pixel as Pixel>::Subpixel::MAX as f32 }
             * tile_size as f32
             * tile_size as f32;
 
+    // Calculate average color of each tile in the palette
     let mut palette_colors = Vec::new();
     let mut palette_images = Vec::new();
 
     for entry in WalkDir::new(palette_dir_path) {
+        // Only process images in supported formats
         let entry = entry?;
 
         if entry.file_type().is_dir() {
@@ -99,6 +106,9 @@ fn main() -> Result<()> {
         let (mut r_sum, mut g_sum, mut b_sum) = (0., 0., 0.);
 
         for px in resized_image.buffer_mut().array_chunks_mut::<PIXEL_SIZE>() {
+            // The output image is opaque. The average color calculation
+            // assumes each pixel of the tile is over a black (r=0, g=0, b=0) background.
+            // This also simplifies calculations for new RGB values when the source pixels of tiles are not opaque.
             if px[3] == u8::MAX {
                 r_sum += f32::from(px[0]);
                 g_sum += f32::from(px[1]);
@@ -130,6 +140,7 @@ fn main() -> Result<()> {
         palette_images.push(resized_image.into_vec());
     }
 
+    // Construct k-d tree for nearest-neighbor queries for colors
     let tree = ImmutableKdTree::new_from_slice(&palette_colors);
 
     let input_image = ImageReader::open(input_image_path)?.decode()?.into_rgba8();
@@ -137,10 +148,16 @@ fn main() -> Result<()> {
 
     let mut output_image = RgbImage::new(width * tile_size, height * tile_size);
 
+    // Cache nearest-neighbor queries to avoid repeating work
+    // Heuristic for initial capacity: probably fewer than half of the pixels in the input image have unique colors.
+    // Even if this ends up being incorrect, the capacity will simply double and will never double again.
+    // (Except when `width` and `height` are odd numbers and every pixel in the input image is unique...)
     let mut palette_cache = HashMap::with_capacity((width * height / 2) as usize);
 
     for (input_px, tile_idx) in input_image.pixels().zip(0..) {
+        // Get the tile with average color "nearest" to the color of the current pixel
         let palette_image = palette_cache.entry(input_px).or_insert_with(|| {
+            // Calculate the Oklab value for a pixel over a black (r=0, g=0, b=0) background
             const SCALE: f32 = 255. * 255.;
 
             let a = f32::from(input_px[3]);
@@ -152,6 +169,7 @@ fn main() -> Result<()> {
             palette_images.get(palette_idx).unwrap()
         });
 
+        // Place each pixel of the tile in the output image
         for (tile_px, px_idx) in palette_image.array_chunks::<PIXEL_SIZE>().zip(0..) {
             let tile_x = tile_idx % width;
             let tile_y = tile_idx / width;
