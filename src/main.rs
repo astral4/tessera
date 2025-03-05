@@ -86,17 +86,12 @@ fn main() -> Result<()> {
 
     for entry in WalkDir::new(palette_dir_path) {
         // Only process images in supported formats
-        let entry = entry?;
-
-        if entry.file_type().is_dir() {
-            continue;
-        }
-
-        let path = entry.path();
-
-        if path.extension().is_none_or(|ext| {
-            !matches!(ext.to_str(), Some("avif" | "jpeg" | "jpg" | "png" | "webp"))
-        }) {
+        let path = entry?.into_path();
+        if path.is_dir()
+            || path.extension().is_none_or(|ext| {
+                !matches!(ext.to_str(), Some("avif" | "jpeg" | "jpg" | "png" | "webp"))
+            })
+        {
             continue;
         }
 
