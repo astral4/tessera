@@ -28,7 +28,7 @@ fn resize_image(image: RgbaImage, new_width: u32, new_height: u32) -> Result<Ima
     Ok(resized_image)
 }
 
-// Converts a (R, B, G) triple in linear sRGB space (i.e. every component's value is from 0.0 to 1.0)
+// Converts a (R, G, B) triple in linear sRGB space (i.e. every component's value is from 0.0 to 1.0)
 // to its corresponding (L, a, b) triple in Oklab space.
 // From https://bottosson.github.io/posts/oklab/
 fn linear_srgb_to_oklab(r: f32, g: f32, b: f32) -> [f32; 3] {
