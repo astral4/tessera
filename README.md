@@ -15,6 +15,7 @@
 - `-h`, `--help`: print a list of arguments and their descriptions
 - `-p`, `--palette-dir`: path to directory containing images to tile the output image with
 - `-s`, `--tile-size`: width and height of each tile in the output image, in pixels
+- `-d`, `--dither`: `true` to enable or `false` to disable dithering when processing input image; default is `true`
 - `-i`, `--input`: input image path; input will be read from this location
 - `-o`, `--output`: output image path; output will be written to this location
 
