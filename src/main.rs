@@ -6,12 +6,13 @@ use foldhash::{HashMap, HashMapExt};
 use image::{GenericImageView, ImageReader, Pixel, Rgb, RgbImage, RgbaImage};
 use kiddo::{ImmutableKdTree, SquaredEuclidean};
 use pico_args::Arguments;
+use quantette::{ColorSpace, ImagePipeline};
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
-type InputImage = RgbaImage;
+type TileImage = RgbaImage;
 
-const PIXEL_SIZE: usize = size_of::<<InputImage as GenericImageView>::Pixel>();
+const PIXEL_SIZE: usize = size_of::<<TileImage as GenericImageView>::Pixel>();
 
 // Resizes the input image to the specified dimensions via triangle/bilinear sampling, producing a new image as output.
 fn resize_image(image: RgbaImage, new_width: u32, new_height: u32) -> Result<Image<'static>> {
@@ -53,6 +54,7 @@ fn main() -> Result<()> {
 -h, --help           print this message
 -p, --palette-dir    path to directory containing images to tile the output image with
 -s, --tile-size      width and height of each tile in the output image, in pixels
+-d, --dither         \"true\" to enable or \"false\" to disable dithering when processing input image; default is \"true\"
 -i, --input          input image path; input will be read from this location
 -o, --output         output image path; output will be written to this location"
         );
@@ -61,6 +63,7 @@ fn main() -> Result<()> {
 
     let palette_dir_path: PathBuf = args.value_from_str(["-p", "--palette-dir"])?;
     let tile_size: u32 = args.value_from_str(["-s", "--tile-size"])?;
+    let dither_enabled: bool = args.opt_value_from_str(["-d", "--dither"])?.unwrap_or(true);
     let input_image_path: PathBuf = args.value_from_str(["-i", "--input"])?;
     let output_image_path: PathBuf = args.value_from_str(["-o", "--output"])?;
 
@@ -75,10 +78,9 @@ fn main() -> Result<()> {
     }
 
     // Calculate scaling factor used in computing the average color of a tile
-    let palette_scale =
-        const { <<InputImage as GenericImageView>::Pixel as Pixel>::Subpixel::MAX as f32 }
-            * tile_size as f32
-            * tile_size as f32;
+    let palette_scale = const { <<TileImage as GenericImageView>::Pixel as Pixel>::Subpixel::MAX as f32 }
+        * tile_size as f32
+        * tile_size as f32;
 
     // Calculate average color of each tile in the palette
     let mut palette_colors = Vec::new();
@@ -138,7 +140,15 @@ fn main() -> Result<()> {
     // Construct k-d tree for nearest-neighbor queries for colors
     let tree = ImmutableKdTree::new_from_slice(&palette_colors);
 
-    let input_image = ImageReader::open(input_image_path)?.decode()?.into_rgba8();
+    let mut input_image = ImageReader::open(input_image_path)?.decode()?.into_rgb8();
+
+    if dither_enabled {
+        // Apply Floyd-Steinberg dithering to the input image
+        input_image = ImagePipeline::try_from(&input_image)?
+            .colorspace(ColorSpace::Oklab)
+            .quantized_rgbimage_par();
+    }
+
     let (width, height) = input_image.dimensions();
 
     let mut output_image = RgbImage::new(width * tile_size, height * tile_size);
@@ -152,13 +162,9 @@ fn main() -> Result<()> {
     for (input_px, tile_idx) in input_image.pixels().zip(0..) {
         // Get the tile with average color "nearest" to the color of the current pixel
         let palette_image = palette_cache.entry(input_px).or_insert_with(|| {
-            // Calculate the Oklab value for a pixel over a black (r=0, g=0, b=0) background
-            const SCALE: f32 = 255. * 255.;
-
-            let a = f32::from(input_px[3]);
-            let r = f32::from(input_px[0]) * a / SCALE;
-            let g = f32::from(input_px[1]) * a / SCALE;
-            let b = f32::from(input_px[2]) * a / SCALE;
+            let r = f32::from(input_px[0]) / 255.;
+            let g = f32::from(input_px[1]) / 255.;
+            let b = f32::from(input_px[2]) / 255.;
             let oklab = linear_srgb_to_oklab(r, g, b);
             let palette_idx = tree.nearest_one::<SquaredEuclidean>(&oklab).item as usize;
             palette_images.get(palette_idx).unwrap()
