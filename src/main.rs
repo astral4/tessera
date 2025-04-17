@@ -11,8 +11,14 @@ use std::path::PathBuf;
 use walkdir::WalkDir;
 
 type TileImage = RgbaImage;
+type InputImage = RgbImage;
 
-const PIXEL_SIZE: usize = size_of::<<TileImage as GenericImageView>::Pixel>();
+const TILE_PIXEL_SIZE: usize = size_of::<<TileImage as GenericImageView>::Pixel>(); // 4
+const TILE_PIXEL_COMPONENT_MAX_INT: u8 =
+    <<TileImage as GenericImageView>::Pixel as Pixel>::Subpixel::MAX; // 255
+const TILE_PIXEL_COMPONENT_MAX: f32 = TILE_PIXEL_COMPONENT_MAX_INT as f32; // 255.0
+const INPUT_PIXEL_COMPONENT_MAX: f32 =
+    <<InputImage as GenericImageView>::Pixel as Pixel>::Subpixel::MAX as f32; // 255.0
 
 // Resizes the input image to the specified dimensions via triangle/bilinear sampling, producing a new image as output.
 fn resize_image(image: RgbaImage, new_width: u32, new_height: u32) -> Result<Image<'static>> {
@@ -78,9 +84,7 @@ fn main() -> Result<()> {
     }
 
     // Calculate scaling factor used in computing the average color of a tile
-    let palette_scale = const { <<TileImage as GenericImageView>::Pixel as Pixel>::Subpixel::MAX as f32 }
-        * tile_size as f32
-        * tile_size as f32;
+    let palette_scale = TILE_PIXEL_COMPONENT_MAX * tile_size as f32 * tile_size as f32;
 
     // Calculate average color of each tile in the palette
     let mut palette_colors = Vec::new();
@@ -97,25 +101,28 @@ fn main() -> Result<()> {
             continue;
         }
 
-        let image = ImageReader::open(path)?.decode()?.into_rgba8();
+        let image: TileImage = ImageReader::open(path)?.decode()?.into_rgba8();
         let mut resized_image = resize_image(image, tile_size, tile_size)?;
 
         let (mut r_sum, mut g_sum, mut b_sum) = (0., 0., 0.);
 
-        for px in resized_image.buffer_mut().array_chunks_mut::<PIXEL_SIZE>() {
+        for px in resized_image
+            .buffer_mut()
+            .array_chunks_mut::<TILE_PIXEL_SIZE>()
+        {
             // The output image is opaque. The average color calculation
             // assumes each pixel of the tile is over a black (r=0, g=0, b=0) background.
             // This also simplifies calculations for new RGB values when the source pixels of tiles are not opaque.
-            if px[3] == u8::MAX {
+            if px[3] == TILE_PIXEL_COMPONENT_MAX_INT {
                 r_sum += f32::from(px[0]);
                 g_sum += f32::from(px[1]);
                 b_sum += f32::from(px[2]);
             } else {
                 let a = f32::from(px[3]);
 
-                let r = f32::from(px[0]) * a / 255.;
-                let g = f32::from(px[1]) * a / 255.;
-                let b = f32::from(px[2]) * a / 255.;
+                let r = f32::from(px[0]) * a / TILE_PIXEL_COMPONENT_MAX;
+                let g = f32::from(px[1]) * a / TILE_PIXEL_COMPONENT_MAX;
+                let b = f32::from(px[2]) * a / TILE_PIXEL_COMPONENT_MAX;
 
                 px[0] = r as u8;
                 px[1] = g as u8;
@@ -140,7 +147,7 @@ fn main() -> Result<()> {
     // Construct k-d tree for nearest-neighbor queries for colors
     let tree = ImmutableKdTree::new_from_slice(&palette_colors);
 
-    let mut input_image = ImageReader::open(input_image_path)?.decode()?.into_rgb8();
+    let mut input_image: InputImage = ImageReader::open(input_image_path)?.decode()?.into_rgb8();
 
     if dither_enabled {
         // Apply Floyd-Steinberg dithering to the input image
@@ -162,16 +169,16 @@ fn main() -> Result<()> {
     for (input_px, tile_idx) in input_image.pixels().zip(0..) {
         // Get the tile with average color "nearest" to the color of the current pixel
         let palette_image = palette_cache.entry(input_px).or_insert_with(|| {
-            let r = f32::from(input_px[0]) / 255.;
-            let g = f32::from(input_px[1]) / 255.;
-            let b = f32::from(input_px[2]) / 255.;
+            let r = f32::from(input_px[0]) / INPUT_PIXEL_COMPONENT_MAX;
+            let g = f32::from(input_px[1]) / INPUT_PIXEL_COMPONENT_MAX;
+            let b = f32::from(input_px[2]) / INPUT_PIXEL_COMPONENT_MAX;
             let oklab = linear_srgb_to_oklab(r, g, b);
             let palette_idx = tree.nearest_one::<SquaredEuclidean>(&oklab).item as usize;
             palette_images.get(palette_idx).unwrap()
         });
 
         // Place each pixel of the tile in the output image
-        for (tile_px, px_idx) in palette_image.array_chunks::<PIXEL_SIZE>().zip(0..) {
+        for (tile_px, px_idx) in palette_image.array_chunks::<TILE_PIXEL_SIZE>().zip(0..) {
             let tile_x = tile_idx % width;
             let tile_y = tile_idx / width;
 
